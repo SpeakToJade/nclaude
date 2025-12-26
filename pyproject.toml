@@ -1,0 +1,18 @@
+[project]
+name = "nclaude"
+version = "1.0.0"
+description = "Headless Claude-to-Claude messaging"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+mcp = ["mcp"]
+dev = ["pytest>=7.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+dev-dependencies = ["pytest>=7.0"]
