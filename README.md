@@ -136,6 +136,40 @@ Messages are JSON with auto-generated IDs:
 
 **Fallback**: File mode still works as backup. Hub mode is opt-in.
 
+## MCP Integration (Experimental)
+
+Expose nclaude as MCP tools for Claude to call directly:
+
+```bash
+# Install MCP dependency
+cd nclaude && uv pip install mcp
+```
+
+Add to `~/.claude/mcp_settings.json`:
+```json
+{
+  "mcpServers": {
+    "nclaude": {
+      "command": "/path/to/nclaude/.venv/bin/python3",
+      "args": ["/path/to/nclaude/scripts/mcp_nclaude.py"]
+    }
+  }
+}
+```
+
+### MCP Tools Available
+
+| Tool | Description |
+|------|-------------|
+| `check_messages` | Check for new messages |
+| `check_pending` | Check daemon notifications |
+| `send_message` | Send to other sessions |
+| `get_status` | Get nclaude status |
+| `whoami` | Get session identity |
+| `hub_connect` | Connect to real-time hub |
+| `hub_send` | Send via hub with @mentions |
+| `hub_recv` | Receive from hub |
+
 ## Limitations
 
 **No push notifications** - Claude sessions cannot wake from idle. Messages queue until:
