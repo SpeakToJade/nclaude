@@ -61,6 +61,81 @@ claude plugin install ./nclaude --scope project
 2. Each session tracks last-read line number
 3. Git-aware: same repo = same message log, including worktrees
 
+## Hub Mode (v1.0.0) - Real-Time Messaging
+
+Unix socket server for instant @mention routing. No more polling.
+
+### Architecture
+```
+         ┌─────────┐
+         │   HUB   │ ← Unix socket server
+         └────┬────┘
+    ┌─────────┼─────────┐
+    ▼         ▼         ▼
+claude-a  claude-b  claude-c
+```
+
+### Quick Start
+
+```bash
+# Terminal 1 - Start hub (human)
+python3 scripts/hub.py start &
+
+# Terminal 2 - Claude A
+python3 scripts/client.py connect claude-a
+python3 scripts/client.py send "@claude-b do the auth module"
+
+# Terminal 3 - Claude B
+python3 scripts/client.py connect claude-b
+python3 scripts/client.py recv --timeout 5  # Gets: "do the auth module"
+```
+
+### Slash Commands (Hub Mode)
+| Command | Description |
+|---------|-------------|
+| `/nclaude:hub start` | Start the hub server |
+| `/nclaude:hub stop` | Stop the hub server |
+| `/nclaude:hub status` | Check if hub is running |
+| `/nclaude:connect` | Connect this session to hub |
+| `/nclaude:hsend @user msg` | Send via hub with @mention routing |
+| `/nclaude:hrecv` | Receive next message from hub |
+
+### @Mention Routing
+
+```bash
+# Route to specific session(s)
+python3 scripts/client.py send "@claude-a do X"
+python3 scripts/client.py send "@claude-a @claude-b both review PR"
+
+# Broadcast to all (no @mention)
+python3 scripts/client.py send "everyone check logs"
+```
+
+### Message Format
+
+Messages are JSON with auto-generated IDs:
+```json
+{
+  "type": "MSG",
+  "from": "claude-a",
+  "to": ["claude-b"],
+  "body": "do the auth module",
+  "id": "claude-a-20251226T234500",
+  "timestamp": "2025-12-26T23:45:00"
+}
+```
+
+### Hub vs File Mode
+
+| Feature | File Mode | Hub Mode |
+|---------|-----------|----------|
+| Latency | ~seconds (polling) | Instant |
+| @mentions | Manual parsing | Auto-routed |
+| Offline | Always works | Requires hub |
+| Setup | Zero | Start hub first |
+
+**Fallback**: File mode still works as backup. Hub mode is opt-in.
+
 ## Limitations
 
 **No push notifications** - Claude sessions cannot wake from idle. Messages queue until:
