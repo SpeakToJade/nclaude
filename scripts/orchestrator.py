@@ -13,6 +13,7 @@ Usage:
 
 import json
 import os
+import pty
 import select
 import subprocess
 import sys
@@ -36,70 +37,105 @@ COLORS = {
 
 
 class ClaudeSession:
-    """Manages a single Claude Code session"""
+    """Manages a single Claude Code session using PTY for full interactivity"""
 
     def __init__(self, session_id: str, cwd: str = None):
         self.session_id = session_id
         self.cwd = cwd or os.getcwd()
-        self.process: Optional[subprocess.Popen] = None
+        self.pid: Optional[int] = None
+        self.master_fd: Optional[int] = None
         self.output_queue: Queue = Queue()
         self.output_thread: Optional[threading.Thread] = None
         self.running = False
 
     def start(self, initial_prompt: str = None):
-        """Start a Claude Code session in interactive mode"""
-        # Always start interactive - we'll send prompt via stdin
-        cmd = ["claude"]
+        """Start a Claude Code session with PTY"""
+        # Create pseudo-terminal
+        master, slave = pty.openpty()
 
-        env = os.environ.copy()
-        env["NCLAUDE_ID"] = self.session_id
-        # Force interactive mode
-        env["TERM"] = "dumb"  # Simpler output
+        pid = os.fork()
+        if pid == 0:
+            # Child process - becomes Claude
+            os.setsid()
+            os.dup2(slave, 0)  # stdin
+            os.dup2(slave, 1)  # stdout
+            os.dup2(slave, 2)  # stderr
+            os.close(master)
+            os.close(slave)
 
-        self.process = subprocess.Popen(
-            cmd,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            cwd=self.cwd,
-            env=env,
-            bufsize=1  # Line buffered
-        )
+            # Set environment
+            os.environ["NCLAUDE_ID"] = self.session_id
+            os.environ["TERM"] = "xterm-256color"
 
-        # If initial prompt provided, send it after a short delay
-        if initial_prompt:
-            threading.Thread(
-                target=self._send_initial_prompt,
-                args=(initial_prompt,),
+            # Change directory
+            if self.cwd:
+                os.chdir(self.cwd)
+
+            # Exec claude
+            os.execlp("claude", "claude")
+        else:
+            # Parent process
+            os.close(slave)
+            self.pid = pid
+            self.master_fd = master
+            self.running = True
+
+            # Start output reader thread
+            self.output_thread = threading.Thread(
+                target=self._read_output,
                 daemon=True
-            ).start()
+            )
+            self.output_thread.start()
 
-        self.running = True
-        self.output_thread = threading.Thread(
-            target=self._read_output,
-            daemon=True
-        )
-        self.output_thread.start()
+            # Send initial prompt after startup
+            if initial_prompt:
+                threading.Thread(
+                    target=self._send_initial_prompt,
+                    args=(initial_prompt,),
+                    daemon=True
+                ).start()
 
-        return self.process.pid
+            return pid
+
+    def _send_initial_prompt(self, prompt: str):
+        """Send initial prompt after Claude starts up"""
+        time.sleep(4)  # Wait for Claude to initialize
+        self.send_input(prompt)
 
     def _read_output(self):
-        """Background thread to read stdout"""
+        """Background thread to read PTY output"""
         try:
-            while self.running and self.process:
-                line = self.process.stdout.readline()
-                if not line:
-                    break
-                self.output_queue.put(line.rstrip())
+            while self.running and self.master_fd:
+                r, _, _ = select.select([self.master_fd], [], [], 0.1)
+                if r:
+                    try:
+                        data = os.read(self.master_fd, 4096)
+                        if data:
+                            # Strip ANSI codes for cleaner output
+                            text = data.decode(errors="replace")
+                            # Split by newlines and queue each line
+                            for line in text.split("\n"):
+                                clean = self._strip_ansi(line).strip()
+                                if clean:
+                                    self.output_queue.put(clean)
+                    except OSError:
+                        break
         except Exception as e:
             self.output_queue.put(f"[ERROR] {e}")
 
+    def _strip_ansi(self, text: str) -> str:
+        """Remove ANSI escape codes"""
+        import re
+        ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+        return ansi_escape.sub('', text)
+
     def send_input(self, text: str):
-        """Send input to the Claude session"""
-        if self.process and self.process.stdin:
-            self.process.stdin.write(text + "\n")
-            self.process.stdin.flush()
+        """Send input to the Claude session via PTY"""
+        if self.master_fd:
+            try:
+                os.write(self.master_fd, (text + "\n").encode())
+            except OSError as e:
+                self.output_queue.put(f"[ERROR sending input] {e}")
 
     def get_output(self, timeout: float = 0.1) -> List[str]:
         """Get any available output"""
@@ -115,12 +151,17 @@ class ClaudeSession:
     def stop(self):
         """Stop the session"""
         self.running = False
-        if self.process:
-            self.process.terminate()
+        if self.master_fd:
             try:
-                self.process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
+                os.close(self.master_fd)
+            except OSError:
+                pass
+        if self.pid:
+            try:
+                os.kill(self.pid, 9)
+                os.waitpid(self.pid, 0)
+            except (OSError, ChildProcessError):
+                pass
 
 
 class Orchestrator:
