@@ -2,6 +2,15 @@
 
 Headless message passing between Claude Code sessions. No sockets, no pipes, no bullshit.
 
+## IMPORTANT: Check Messages Proactively!
+
+**Claude sessions cannot poll in background.** You must actively check for messages:
+```bash
+python3 scripts/nclaude.py read
+```
+
+**Best practice**: Check messages at the START of each response when collaborating with other sessions. Don't wait for the user to remind you!
+
 ## Quick Start
 
 ```bash
