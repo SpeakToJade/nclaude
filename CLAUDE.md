@@ -16,26 +16,55 @@ python3 scripts/nclaude.py read
 
 **Don't wait for the user to remind you!**
 
-## WAIT Protocol (Before ACK System Exists)
+## SYN-ACK Protocol (Claude-to-Claude Handshake)
 
-When waiting for response from another Claude:
+Like TCP, but for Claudes. Ensures coordination before proceeding.
 
-1. **TELL USER YOU'RE WAITING** - "Waiting for claude-b to confirm..."
-2. **SUGGEST SLEEP** - "User: check back in a few minutes or tell me to proceed"
-3. **RESUME ON**:
-   - User says "check logs" / "sync" / "continue"
-   - User interrupts with new instruction
-   - User says "just do it" (proceed without ACK)
-4. **IF STUCK** - Post to log: `--type URGENT "BLOCKED: waiting on <what>"`
+### Message Flow
+```
+Claude-A                          Claude-B
+   |                                  |
+   |---[SYN] proposal/task----------->|
+   |                                  |
+   |<--[ACK] confirmed/GO-------------|
+   |                                  |
+   |   (proceed with work)            |
+```
 
-**DO NOT spin-loop checking messages.** Wait for human to trigger next check.
-
+### SYN Message (Initiator)
 ```bash
-# Post wait status
-python3 scripts/nclaude.py send "WAITING: for claude-b to confirm division" --type STATUS
+python3 scripts/nclaude.py send "SYN: v0.4.0 - I'll do message IDs, you do receipts. Reply ACK or NACK" --type TASK
+```
 
-# When resuming, check first
-python3 scripts/nclaude.py read
+### ACK Message (Responder)
+```bash
+python3 scripts/nclaude.py send "ACK: v0.4.0 - confirmed, proceeding with receipts" --type REPLY
+```
+
+### NACK Message (Reject/Counter)
+```bash
+python3 scripts/nclaude.py send "NACK: v0.4.0 - counter-proposal: I do both, you do docs" --type REPLY
+```
+
+### Rules
+1. **SYN requires at least 1 ACK** before proceeding
+2. **After SYN, SLEEP** - tell user "Waiting for ACK, check back or interrupt"
+3. **Resume on**:
+   - ACK received (check logs on user prompt)
+   - User says "proceed" / "just do it" (override)
+   - User interrupts with new task
+   - Error/timeout (post URGENT, ask user)
+4. **DO NOT spin-loop** - wait for human to trigger next check
+5. **NACK restarts negotiation** - new SYN needed
+
+### Wait State
+After sending SYN:
+```
+I've sent a SYN to claude-b for [task].
+SLEEPING until:
+- User tells me to "check logs"
+- User says "proceed anyway"
+- User gives new instruction
 ```
 
 ## Quick Start
