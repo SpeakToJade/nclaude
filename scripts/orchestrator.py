@@ -133,7 +133,8 @@ class ClaudeSession:
         """Send input to the Claude session via PTY"""
         if self.master_fd:
             try:
-                os.write(self.master_fd, (text + "\n").encode())
+                # Use \r\n for PTY - some terminals need carriage return
+                os.write(self.master_fd, (text + "\r\n").encode())
             except OSError as e:
                 self.output_queue.put(f"[ERROR sending input] {e}")
 
