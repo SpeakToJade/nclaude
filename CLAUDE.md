@@ -2,30 +2,6 @@
 
 Headless message passing between Claude Code sessions. No sockets, no pipes, no bullshit.
 
-## ⚠️ TEMPORARY: YOLO MODE TIME LIMIT ⚠️
-
-**DELETE THIS SECTION AFTER FEATURE COMPLETE**
-
-Working on v1.0.0 Unix socket hub with `--dangerously-skip-permissions`.
-
-**HARD STOP: Sat Dec 27 02:44 EET 2025**
-
-Before EVERY tool use, check:
-```bash
-if [[ $(date +%H%M) -ge 0244 ]]; then
-  echo "TIME LIMIT REACHED - STOP WORKING"
-  exit 1
-fi
-```
-
-When time limit hit:
-1. Commit current work (even if incomplete)
-2. Push to feature branch
-3. Post status to shared log
-4. STOP - do not continue
-
----
-
 ## IMPORTANT: Check Messages Proactively!
 
 **Claude sessions cannot poll in background.** At the START of each response, check for pending messages:
