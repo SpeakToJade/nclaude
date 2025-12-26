@@ -389,6 +389,66 @@ def main():
                         pass
             listen(session_id, interval)
             result = None  # listen handles its own output
+
+        # Hub commands - delegate to hub.py and client.py
+        elif cmd == "hub":
+            import subprocess
+            hub_script = Path(__file__).parent / "hub.py"
+            subcmd = positional[0] if positional else "status"
+            proc = subprocess.run(
+                ["python3", str(hub_script), subcmd],
+                capture_output=True, text=True
+            )
+            if proc.stdout:
+                result = json.loads(proc.stdout)
+            else:
+                result = {"error": proc.stderr}
+
+        elif cmd == "connect":
+            import subprocess
+            client_script = Path(__file__).parent / "client.py"
+            session_id = positional[0] if positional else get_auto_session_id()
+            proc = subprocess.run(
+                ["python3", str(client_script), "connect", session_id],
+                capture_output=True, text=True
+            )
+            if proc.stdout:
+                result = json.loads(proc.stdout)
+            else:
+                result = {"error": proc.stderr}
+
+        elif cmd == "hsend":  # hub send (real-time)
+            import subprocess
+            client_script = Path(__file__).parent / "client.py"
+            message = " ".join(positional) if positional else ""
+            if not message:
+                result = {"error": "No message provided"}
+            else:
+                proc = subprocess.run(
+                    ["python3", str(client_script), "send", message],
+                    capture_output=True, text=True
+                )
+                if proc.stdout:
+                    result = json.loads(proc.stdout)
+                else:
+                    result = {"error": proc.stderr}
+
+        elif cmd == "hrecv":  # hub receive (real-time)
+            import subprocess
+            client_script = Path(__file__).parent / "client.py"
+            timeout = "5"
+            for i, arg in enumerate(args):
+                if arg == "--timeout" and i + 1 < len(args):
+                    timeout = args[i + 1]
+            proc = subprocess.run(
+                ["python3", str(client_script), "recv", "--timeout", timeout],
+                capture_output=True, text=True
+            )
+            if proc.stdout:
+                result = json.loads(proc.stdout)
+            else:
+                result = {"error": proc.stderr}
+
         else:
             result = {"error": f"Unknown command: {cmd}"}
     except Exception as e:
