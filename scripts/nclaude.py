@@ -374,6 +374,14 @@ def main():
             result = status()
         elif cmd == "clear":
             result = clear()
+        elif cmd == "broadcast":
+            # Send a single message visible to all sessions
+            message = " ".join(positional) if positional else ""
+            if not message:
+                result = {"error": "No message provided"}
+            else:
+                # Send as BROADCAST type from HUMAN sender
+                result = send("HUMAN", message, "BROADCAST")
         elif cmd == "pending":
             session_id = positional[0] if positional else get_auto_session_id()
             result = pending(session_id)
