@@ -5,7 +5,6 @@ A simple file-based message queue for communication between Claude Code sessions
 No sockets, no pipes, no bullshit.
 """
 import fcntl
-import hashlib
 import json
 import os
 import shutil
@@ -53,14 +52,13 @@ def get_base_dir():
     if "NCLAUDE_DIR" in os.environ:
         return Path(os.environ["NCLAUDE_DIR"])
 
-    # Try git-aware path
-    git_common, repo_name, _ = get_git_info()
-    if git_common and repo_name:
-        # Use /tmp/nclaude/<repo-hash> for isolation
-        repo_hash = hashlib.md5(str(git_common).encode()).hexdigest()[:8]
-        return Path(f"/tmp/nclaude/{repo_name}-{repo_hash}")
+    # Try git-aware path - use repo name for isolation (consistent across all sessions)
+    _, repo_name, _ = get_git_info()
+    if repo_name:
+        # Use /tmp/nclaude/<repo-name>/ - same repo = same path, always
+        return Path(f"/tmp/nclaude/{repo_name}")
 
-    # Fallback
+    # Fallback for non-git directories
     return Path("/tmp/nclaude")
 
 
