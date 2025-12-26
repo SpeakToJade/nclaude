@@ -1,395 +1,317 @@
 #!/usr/bin/env python3
 """
-nclaude client - Unix socket client for connecting to nclaude hub
+nclaude client - Connect to hub for real-time messaging
 
-Handles:
-- Connection to hub
-- Session registration
-- Sending messages with @mentions
-- Receiving messages in background
-- Queueing received messages for Claude to read
+Usage:
+    python3 client.py connect <session_id>
+    python3 client.py send <message> [--to @session1 @session2]
+    python3 client.py recv [--timeout 5]
 """
 
-import socket
 import json
 import os
+import re
+import select
+import socket
 import sys
 import threading
 import queue
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, Callable
-import time
+from typing import List, Optional
 
-# Get base directory (git-aware)
-def get_base_dir() -> Path:
-    """Get nclaude base directory, git-aware."""
-    if custom := os.environ.get("NCLAUDE_DIR"):
-        return Path(custom)
-
-    try:
-        import subprocess
-        result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, check=True
-        )
-        repo_name = Path(result.stdout.strip()).name
-    except:
-        repo_name = "default"
-
-    return Path(f"/tmp/nclaude/{repo_name}")
+# Default socket path
+DEFAULT_SOCKET = Path("/tmp/nclaude/hub.sock")
 
 
-def get_auto_session_id() -> str:
-    """Auto-detect session ID from git context."""
-    if custom := os.environ.get("NCLAUDE_ID"):
-        return custom
+class HubClient:
+    """Client for connecting to nclaude hub"""
 
-    try:
-        import subprocess
-        # Get repo name
-        result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, check=True
-        )
-        repo_name = Path(result.stdout.strip()).name
-
-        # Get branch name
-        result = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            capture_output=True, text=True, check=True
-        )
-        branch = result.stdout.strip()
-
-        return f"{repo_name}-{branch}"
-    except:
-        return "claude-default"
-
-
-BASE = get_base_dir()
-SOCKET_PATH = BASE / "hub.sock"
-INBOX_PATH = BASE / "inbox"  # Per-session inbox for queued messages
-
-
-class NClaudeClient:
-    """Client for connecting to nclaude hub."""
-
-    def __init__(self, session_id: Optional[str] = None):
-        self.session_id = session_id or get_auto_session_id()
+    def __init__(self, session_id: str, socket_path: Path = DEFAULT_SOCKET):
+        self.session_id = session_id
+        self.socket_path = socket_path
         self.sock: Optional[socket.socket] = None
         self.connected = False
-        self.receive_thread: Optional[threading.Thread] = None
         self.message_queue: queue.Queue = queue.Queue()
-        self.callbacks: list[Callable[[dict], None]] = []
+        self.recv_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
 
-    def connect(self) -> bool:
-        """Connect to the hub."""
-        if not SOCKET_PATH.exists():
-            print(f"[CLIENT] Hub not running (no socket at {SOCKET_PATH})", file=sys.stderr)
-            return False
+    def connect(self) -> dict:
+        """Connect to hub and register session"""
+        if not self.socket_path.exists():
+            return {"error": "Hub not running", "socket": str(self.socket_path)}
 
         try:
             self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            self.sock.connect(str(SOCKET_PATH))
-            self.connected = True
+            self.sock.connect(str(self.socket_path))
+            self.sock.setblocking(False)
 
-            # Register with hub
-            self._send({
-                "type": "REGISTER",
-                "session_id": self.session_id
-            })
-
-            # Start receive thread
-            self._stop_event.clear()
-            self.receive_thread = threading.Thread(target=self._receive_loop, daemon=True)
-            self.receive_thread.start()
+            # Register session
+            self._send({"type": "REGISTER", "session_id": self.session_id})
 
             # Wait for registration confirmation
-            time.sleep(0.1)
-
-            print(f"[CLIENT] Connected as {self.session_id}", file=sys.stderr)
-            return True
+            response = self._recv_one(timeout=5.0)
+            if response and response.get("type") == "REGISTERED":
+                self.connected = True
+                self._start_recv_thread()
+                return {
+                    "connected": True,
+                    "session_id": self.session_id,
+                    "online": response.get("online", [])
+                }
+            else:
+                return {"error": "Registration failed", "response": response}
 
         except Exception as e:
-            print(f"[CLIENT] Connection failed: {e}", file=sys.stderr)
-            self.connected = False
-            return False
+            return {"error": str(e)}
 
     def disconnect(self):
-        """Disconnect from hub."""
+        """Disconnect from hub"""
         self._stop_event.set()
-        self.connected = False
-
+        if self.recv_thread:
+            self.recv_thread.join(timeout=2.0)
         if self.sock:
             try:
                 self.sock.close()
             except:
                 pass
-            self.sock = None
+        self.connected = False
 
-        if self.receive_thread:
-            self.receive_thread.join(timeout=1.0)
-
-        print(f"[CLIENT] Disconnected", file=sys.stderr)
-
-    def send(self, body: str, msg_type: str = "MSG") -> Optional[dict]:
-        """Send a message through the hub."""
+    def send(self, body: str, to: List[str] = None, msg_type: str = "MSG") -> dict:
+        """Send message through hub"""
         if not self.connected:
-            print("[CLIENT] Not connected", file=sys.stderr)
-            return None
+            return {"error": "Not connected"}
 
         msg = {
             "type": msg_type,
             "body": body
         }
+        if to:
+            msg["to"] = to
 
         self._send(msg)
 
-        # Wait for confirmation (with timeout)
+        # Wait for confirmation
         try:
-            for _ in range(10):  # 1 second timeout
-                while not self.message_queue.empty():
-                    response = self.message_queue.get_nowait()
-                    if response.get("type") == "SENT":
-                        return response
-                time.sleep(0.1)
-        except:
-            pass
+            response = self.message_queue.get(timeout=5.0)
+            if response.get("type") == "SENT":
+                return {"sent": True, "id": response.get("id"), "to": response.get("to")}
+            else:
+                # It's a received message, put it back
+                self.message_queue.put(response)
+                return {"sent": True, "id": "unknown"}
+        except queue.Empty:
+            return {"sent": True, "id": "unconfirmed"}
 
-        return {"sent": True, "body": body}
-
-    def receive(self, block: bool = False, timeout: float = None) -> Optional[dict]:
-        """Receive a message from the queue."""
+    def recv(self, timeout: float = 0.0) -> Optional[dict]:
+        """Receive next message"""
         try:
-            return self.message_queue.get(block=block, timeout=timeout)
+            return self.message_queue.get(timeout=timeout if timeout > 0 else None)
         except queue.Empty:
             return None
 
-    def get_pending(self) -> list[dict]:
-        """Get all pending messages."""
+    def recv_all(self) -> List[dict]:
+        """Get all queued messages"""
         messages = []
-        while not self.message_queue.empty():
+        while True:
             try:
                 messages.append(self.message_queue.get_nowait())
             except queue.Empty:
                 break
         return messages
 
-    def on_message(self, callback: Callable[[dict], None]):
-        """Register a callback for incoming messages."""
-        self.callbacks.append(callback)
+    def _send(self, msg: dict):
+        """Send raw message to hub"""
+        if self.sock:
+            data = json.dumps(msg) + "\n"
+            self.sock.sendall(data.encode())
 
-    def list_clients(self) -> list[str]:
-        """Get list of connected clients."""
-        if not self.connected:
-            return []
+    def _recv_one(self, timeout: float = 1.0) -> Optional[dict]:
+        """Receive single message with timeout"""
+        if not self.sock:
+            return None
 
-        self._send({"type": "LIST"})
+        ready, _, _ = select.select([self.sock], [], [], timeout)
+        if not ready:
+            return None
 
-        # Wait for response
         try:
-            for _ in range(10):
-                while not self.message_queue.empty():
-                    response = self.message_queue.get_nowait()
-                    if response.get("type") == "CLIENT_LIST":
-                        return response.get("clients", [])
-                time.sleep(0.1)
+            data = self.sock.recv(65536)
+            if data:
+                line = data.decode().strip().split("\n")[0]
+                return json.loads(line)
         except:
             pass
+        return None
 
-        return []
+    def _start_recv_thread(self):
+        """Start background receive thread"""
+        self._stop_event.clear()
+        self.recv_thread = threading.Thread(target=self._recv_loop, daemon=True)
+        self.recv_thread.start()
 
-    def _send(self, msg: dict):
-        """Send raw message to hub."""
-        if not self.sock:
-            return
-
-        try:
-            data = json.dumps(msg) + '\n'
-            self.sock.sendall(data.encode('utf-8'))
-        except Exception as e:
-            print(f"[CLIENT] Send error: {e}", file=sys.stderr)
-            self.connected = False
-
-    def _receive_loop(self):
-        """Background thread for receiving messages."""
+    def _recv_loop(self):
+        """Background loop to receive messages"""
         buffer = ""
+        while not self._stop_event.is_set():
+            if not self.sock:
+                break
 
-        while not self._stop_event.is_set() and self.connected:
             try:
-                self.sock.settimeout(0.5)
-                data = self.sock.recv(65536)
+                ready, _, _ = select.select([self.sock], [], [], 0.5)
+                if not ready:
+                    continue
 
+                data = self.sock.recv(65536)
                 if not data:
-                    self.connected = False
                     break
 
-                buffer += data.decode('utf-8')
-
-                # Process complete messages (newline-delimited)
-                while '\n' in buffer:
-                    line, buffer = buffer.split('\n', 1)
-                    if line.strip():
+                buffer += data.decode()
+                while "\n" in buffer:
+                    line, buffer = buffer.split("\n", 1)
+                    if line:
                         try:
                             msg = json.loads(line)
-                            self._handle_message(msg)
+                            self.message_queue.put(msg)
                         except json.JSONDecodeError:
                             pass
 
-            except socket.timeout:
-                continue
-            except Exception as e:
-                if not self._stop_event.is_set():
-                    print(f"[CLIENT] Receive error: {e}", file=sys.stderr)
+            except (ConnectionResetError, BrokenPipeError):
                 break
-
-    def _handle_message(self, msg: dict):
-        """Handle incoming message."""
-        msg_type = msg.get("type", "")
-
-        # Queue for retrieval
-        self.message_queue.put(msg)
-
-        # Save to inbox file for persistence
-        self._save_to_inbox(msg)
-
-        # Trigger callbacks
-        for callback in self.callbacks:
-            try:
-                callback(msg)
-            except Exception as e:
-                print(f"[CLIENT] Callback error: {e}", file=sys.stderr)
-
-        # Print notification for non-system messages
-        if msg_type not in ("REGISTERED", "SENT", "CLIENT_LIST"):
-            sender = msg.get("from", "unknown")
-            body = msg.get("body", "")[:50]
-            print(f"[CLIENT] Message from {sender}: {body}...", file=sys.stderr)
-
-    def _save_to_inbox(self, msg: dict):
-        """Save message to inbox file."""
-        inbox_file = INBOX_PATH / f"{self.session_id}.jsonl"
-        INBOX_PATH.mkdir(parents=True, exist_ok=True)
-
-        with open(inbox_file, "a") as f:
-            f.write(json.dumps(msg) + '\n')
+            except Exception:
+                continue
 
 
-# Singleton client for easy access
-_client: Optional[NClaudeClient] = None
+def parse_mentions(text: str) -> tuple[str, List[str]]:
+    """Parse @mentions from message text
+
+    Returns (cleaned_text, list_of_mentions)
+
+    Examples:
+        "@claude-a do X" -> ("do X", ["claude-a"])
+        "@claude-a @claude-b both do Y" -> ("both do Y", ["claude-a", "claude-b"])
+        "everyone do Z" -> ("everyone do Z", [])
+    """
+    # Find all @mentions
+    mentions = re.findall(r'@([\w-]+)', text)
+
+    # Remove mentions from text
+    cleaned = re.sub(r'@[\w-]+\s*', '', text).strip()
+
+    return cleaned, mentions
 
 
-def get_client() -> NClaudeClient:
-    """Get or create the singleton client."""
+# Global client instance for CLI
+_client: Optional[HubClient] = None
+
+
+def get_client(session_id: str = None) -> HubClient:
+    """Get or create client instance"""
     global _client
-    if _client is None:
-        _client = NClaudeClient()
+
+    if session_id is None:
+        # Try to get from environment or auto-detect
+        session_id = os.environ.get("NCLAUDE_ID")
+        if not session_id:
+            # Auto-detect from git like nclaude.py does
+            import subprocess
+            try:
+                repo = subprocess.run(
+                    ["git", "rev-parse", "--show-toplevel"],
+                    capture_output=True, text=True
+                ).stdout.strip()
+                branch = subprocess.run(
+                    ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                    capture_output=True, text=True
+                ).stdout.strip()
+                repo_name = Path(repo).name if repo else "unknown"
+                session_id = f"{repo_name}-{branch}"
+            except:
+                session_id = "unknown"
+
+    if _client is None or _client.session_id != session_id:
+        _client = HubClient(session_id)
+
     return _client
 
 
-def connect(session_id: Optional[str] = None) -> bool:
-    """Connect to hub with optional session ID."""
-    global _client
-    _client = NClaudeClient(session_id)
-    return _client.connect()
-
-
-def send(body: str, msg_type: str = "MSG") -> Optional[dict]:
-    """Send a message."""
-    client = get_client()
-    if not client.connected:
-        if not client.connect():
-            return None
-    return client.send(body, msg_type)
-
-
-def receive(block: bool = False) -> Optional[dict]:
-    """Receive a message."""
-    return get_client().receive(block=block)
-
-
-def pending() -> list[dict]:
-    """Get all pending messages."""
-    return get_client().get_pending()
-
-
 def main():
-    """CLI interface for client."""
     if len(sys.argv) < 2:
-        print("Usage: client.py <connect|send|receive|list|status>")
+        print("Usage: client.py <connect|send|recv|status> [args]")
         sys.exit(1)
 
     cmd = sys.argv[1]
+    args = sys.argv[2:]
+
+    # Parse --socket flag
+    socket_path = DEFAULT_SOCKET
+    if "--socket" in args:
+        idx = args.index("--socket")
+        if idx + 1 < len(args):
+            socket_path = Path(args[idx + 1])
+            args = args[:idx] + args[idx+2:]
 
     if cmd == "connect":
-        session_id = sys.argv[2] if len(sys.argv) > 2 else None
-        client = NClaudeClient(session_id)
-        if client.connect():
-            print(json.dumps({"connected": True, "session_id": client.session_id}))
-            # Keep running to receive messages
-            try:
-                while client.connected:
-                    time.sleep(1)
-            except KeyboardInterrupt:
-                client.disconnect()
-        else:
-            print(json.dumps({"connected": False, "error": "Failed to connect"}))
-            sys.exit(1)
+        session_id = args[0] if args else None
+        client = get_client(session_id)
+        client.socket_path = socket_path
+        result = client.connect()
+        print(json.dumps(result))
 
     elif cmd == "send":
-        if len(sys.argv) < 3:
-            print("Usage: client.py send <message> [--type TYPE]")
+        if not args:
+            print(json.dumps({"error": "No message provided"}))
             sys.exit(1)
 
-        # Parse args
-        msg_type = "MSG"
-        body_parts = []
-        i = 2
-        while i < len(sys.argv):
-            if sys.argv[i] == "--type" and i + 1 < len(sys.argv):
-                msg_type = sys.argv[i + 1].upper()
-                i += 2
-            else:
-                body_parts.append(sys.argv[i])
-                i += 1
+        # Join all args as message
+        message = " ".join(args)
 
-        body = " ".join(body_parts)
+        # Parse @mentions
+        body, mentions = parse_mentions(message)
 
-        result = send(body, msg_type)
-        print(json.dumps(result or {"error": "Failed to send"}))
-
-    elif cmd == "receive":
         client = get_client()
+        client.socket_path = socket_path
+
         if not client.connected:
-            client.connect()
+            result = client.connect()
+            if "error" in result:
+                print(json.dumps(result))
+                sys.exit(1)
 
-        messages = client.get_pending()
-        print(json.dumps({"messages": messages, "count": len(messages)}))
+        result = client.send(body, to=mentions if mentions else None)
+        print(json.dumps(result))
 
-    elif cmd == "list":
+    elif cmd == "recv":
+        timeout = 5.0
+        if "--timeout" in args:
+            idx = args.index("--timeout")
+            if idx + 1 < len(args):
+                timeout = float(args[idx + 1])
+
         client = get_client()
-        if not client.connected:
-            client.connect()
+        client.socket_path = socket_path
 
-        clients = client.list_clients()
-        print(json.dumps({"clients": clients}))
+        if not client.connected:
+            result = client.connect()
+            if "error" in result:
+                print(json.dumps(result))
+                sys.exit(1)
+
+        msg = client.recv(timeout=timeout)
+        if msg:
+            print(json.dumps(msg))
+        else:
+            print(json.dumps({"messages": [], "count": 0}))
 
     elif cmd == "status":
-        if SOCKET_PATH.exists():
-            client = NClaudeClient()
-            if client.connect():
-                clients = client.list_clients()
-                print(json.dumps({
-                    "hub": "running",
-                    "socket": str(SOCKET_PATH),
-                    "clients": clients
-                }))
-                client.disconnect()
-            else:
-                print(json.dumps({"hub": "error", "socket": str(SOCKET_PATH)}))
-        else:
-            print(json.dumps({"hub": "not_running"}))
+        client = get_client()
+        client.socket_path = socket_path
+        print(json.dumps({
+            "session_id": client.session_id,
+            "connected": client.connected,
+            "socket": str(client.socket_path),
+            "queued_messages": client.message_queue.qsize()
+        }))
 
     else:
         print(f"Unknown command: {cmd}")
