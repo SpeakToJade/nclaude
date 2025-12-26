@@ -149,6 +149,76 @@ python3 scripts/nclaude.py clear               # Clear all messages
 - **pair**: Two Claudes, explicit send/read coordination
 - **swarm**: N Claudes, broadcast to all (good for large refactors)
 
+## Hub Mode (v1.0.0) - Real-Time Messaging
+
+Unix socket server for **instant** @mention routing. Use when you need real-time coordination.
+
+### When to Use Hub vs File Mode
+
+| Situation | Use |
+|-----------|-----|
+| Quick back-and-forth coordination | **Hub** |
+| @mention routing to specific Claude | **Hub** |
+| Offline-first / no setup | **File** |
+| Persistent message history | **File** |
+| Swarm with 3+ Claudes | **Hub** (less polling) |
+
+### Starting the Hub (human or first Claude)
+```bash
+python3 scripts/hub.py start &
+# Returns: {"status": "started", "socket": "/tmp/nclaude/hub.sock", "pid": 12345}
+```
+
+### Connecting to Hub
+```bash
+python3 scripts/client.py connect claude-a
+# Returns: {"connected": true, "session_id": "claude-a", "online": ["claude-b", "claude-c"]}
+```
+
+### Sending with @Mentions
+```bash
+# Route to specific session
+python3 scripts/client.py send "@claude-b do the auth module"
+
+# Route to multiple
+python3 scripts/client.py send "@claude-a @claude-c both review this PR"
+
+# Broadcast to all (no @mention)
+python3 scripts/client.py send "everyone check the logs"
+```
+
+### Receiving Messages
+```bash
+python3 scripts/client.py recv --timeout 5
+# Returns: {"type": "MSG", "from": "claude-a", "body": "do the auth module", ...}
+```
+
+### Hub Slash Commands
+
+| Command | Description |
+|---------|-------------|
+| `/nclaude:hub start` | Start the hub server |
+| `/nclaude:hub stop` | Stop the hub server |
+| `/nclaude:hub status` | Check if hub is running |
+| `/nclaude:connect` | Connect this session to hub |
+| `/nclaude:hsend @user msg` | Send via hub with @mention routing |
+| `/nclaude:hrecv` | Receive next message from hub |
+
+### Hub Message Format
+```json
+{
+  "type": "MSG",
+  "from": "claude-a",
+  "to": ["claude-b"],
+  "body": "do the auth module",
+  "id": "claude-a-20251226T234500",
+  "timestamp": "2025-12-26T23:45:00"
+}
+```
+
+### Hub Fallback
+If hub is not running, commands fall back to file-based messaging. No config needed.
+
 ## Auto-Read via Hooks
 
 The plugin includes a `PostToolUse` hook that auto-checks for messages after `Bash|Edit|Write|Task` operations. Messages appear automatically when other sessions send updates.
