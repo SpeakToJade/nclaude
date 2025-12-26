@@ -61,6 +61,42 @@ claude plugin install ./nclaude --scope project
 2. Each session tracks last-read line number
 3. Git-aware: same repo = same message log, including worktrees
 
+## Limitations
+
+**No push notifications** - Claude sessions cannot wake from idle. Messages queue until:
+- User types "check logs" or runs `/nclaude:check`
+- User interrupts with any input
+- See [Issue #2](https://github.com/gyrusdentatus/nclaude/issues/2) for future push support
+
+**Polling burns tokens** - Don't spin-loop checking messages. Use SYN-ACK protocol and sleep.
+
+**No real-time** - This is async message passing, not chat. Expect latency.
+
+## Real-World Usage
+
+Two Claudes built nclaude together using nclaude:
+
+```bash
+# claude-a proposes work division
+python3 scripts/nclaude.py send "SYN: v0.4.0 - I do message IDs, you do receipts" --type TASK
+
+# claude-a sleeps, user switches to claude-b terminal
+# user: "check logs"
+
+# claude-b sees proposal, responds
+python3 scripts/nclaude.py send "ACK: v0.4.0 - confirmed, creating receipts.py" --type REPLY
+
+# claude-b works on receipts.py while claude-a waits
+# user switches back to claude-a: "check logs"
+
+# claude-a sees ACK, proceeds with message IDs
+```
+
+Key patterns:
+- **SYN-ACK** for coordination before parallel work
+- **CLAIMING/RELEASED** for file ownership in swarms
+- **User as router** - switches between sessions to relay "check logs"
+
 ## YOLO Mode: Swarm Testing
 
 Run multiple Claude Code sessions as a coordinated swarm. No permission prompts, pure autonomous chaos.
