@@ -36,6 +36,9 @@ python3 scripts/nclaude.py send "Acknowledged, working on Y"
 |---------|-------------|
 | `/nclaude:send <msg>` | Send a message |
 | `/nclaude:read` | Read new messages |
+| `/nclaude:check` | Check pending + read (sync with other Claudes) |
+| `/nclaude:pending` | Check daemon-notified pending messages |
+| `/nclaude:listen` | Start background listener (human use) |
 | `/nclaude:status` | Show chat status |
 | `/nclaude:clear` | Clear all messages |
 | `/nclaude:watch` | Instructions for human monitoring |
@@ -58,7 +61,7 @@ python3 scripts/nclaude.py clear               # Clear all messages
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `NCLAUDE_ID` | `repo-branch` | Session identifier (auto-detected from git) |
-| `NCLAUDE_DIR` | `/tmp/nclaude/<repo-hash>` | Message storage (git-aware) |
+| `NCLAUDE_DIR` | `/tmp/nclaude/<repo-name>` | Message storage (git-aware) |
 
 ### Git-Aware Defaults
 
@@ -100,11 +103,38 @@ tail -f /tmp/nclaude/*/messages.log  # All repos
 tail -f $(python3 scripts/nclaude.py whoami | jq -r .log_path)  # Current repo
 ```
 
+## Message Types
+
+Use `--type` flag to categorize messages:
+```bash
+python3 scripts/nclaude.py send "msg" --type TASK    # Task assignment
+python3 scripts/nclaude.py send "msg" --type REPLY   # Response to task
+python3 scripts/nclaude.py send "msg" --type STATUS  # Progress update
+python3 scripts/nclaude.py send "msg" --type ERROR   # Error report
+python3 scripts/nclaude.py send "msg" --type URGENT  # Priority message
+python3 scripts/nclaude.py send "msg"                # Default: MSG
+```
+
 ## Message Format
 
+**Single-line** (default MSG type):
 ```
 [2025-12-26T14:30:00] [nclaude-main] Starting work on X
-[2025-12-26T14:30:05] [nclaude-feat-auth] Acknowledged, working on Y
+```
+
+**Single-line with type**:
+```
+[2025-12-26T14:30:00] [nclaude-main] [STATUS] Auth module complete
+```
+
+**Multi-line** (auto-detected):
+```
+<<<[2025-12-26T14:30:00][nclaude-main][TASK]>>>
+Please review these files:
+1. src/auth.py
+2. src/login.py
+3. tests/test_auth.py
+<<<END>>>
 ```
 
 ## How It Works
@@ -114,3 +144,50 @@ tail -f $(python3 scripts/nclaude.py whoami | jq -r .log_path)  # Current repo
 3. Read returns only unread messages (unless `--all`)
 4. `--quiet` flag for hooks: only outputs if new messages exist
 5. Git-aware paths ensure repo isolation while sharing across worktrees
+
+## YOLO Mode: Swarm Operations
+
+Run multiple Claude sessions as a coordinated swarm with `--dangerously-skip-permissions`.
+
+### Swarm Spawn (for humans)
+```bash
+# Monitor all agents
+tail -f /tmp/nclaude/*/messages.log
+
+# Spawn 5 agents
+for i in {1..5}; do
+  NCLAUDE_ID="swarm-$i" claude --dangerously-skip-permissions \
+    -p "You are swarm agent $i. Run /nclaude:check first. Task: <TASK>" &
+done
+```
+
+### Swarm Protocols (for Claudes)
+
+**ALWAYS check messages first:**
+```bash
+python3 scripts/nclaude.py pending   # Check daemon notifications
+python3 scripts/nclaude.py read      # Or direct read
+```
+
+**Claim before touching files:**
+```bash
+# Claim
+python3 scripts/nclaude.py send "CLAIMING: src/auth/*.py" --type URGENT
+
+# Work on files...
+
+# Release
+python3 scripts/nclaude.py send "RELEASED: src/auth/*.py" --type STATUS
+```
+
+**Request help:**
+```bash
+python3 scripts/nclaude.py send "NEED HELP: OAuth flow stuck" --type TASK
+```
+
+### Swarm Rules
+1. **Check messages FIRST** - before ANY action
+2. **Claim before touch** - announce file ownership via URGENT
+3. **One file = one owner** - no parallel edits to same file
+4. **Release when done** - STATUS message when file is free
+5. **Announce conflicts** - if you see a claim, wait or negotiate
