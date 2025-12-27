@@ -17,8 +17,9 @@ Usage:
     python3 swarm_daemon.py list                                   # List sessions
     python3 swarm_daemon.py swarm <n> <task>                       # Spawn N Claudes to divide work
     python3 swarm_daemon.py ask <session_name> <question>          # Ask and show answer
-    python3 swarm_daemon.py logs                                   # Watch logs (current repo only)
+    python3 swarm_daemon.py logs                                   # Watch logs (last 200 lines + follow)
     python3 swarm_daemon.py logs --all                             # Watch all repo logs
+    python3 swarm_daemon.py logs -n 500                            # Show last 500 lines
 """
 
 import json
@@ -34,20 +35,46 @@ from typing import Optional
 CLAUDE_BINARY = os.path.expanduser("~/.claude/local/node_modules/.bin/claude")
 NCLAUDE_DIR = Path(os.environ.get("NCLAUDE_DIR", "/tmp/nclaude"))
 
-# ANSI colors for swarm agents
-COLORS = {
-    'swarm-1': '\033[94m',   # Blue
-    'swarm-2': '\033[92m',   # Green
-    'swarm-3': '\033[93m',   # Yellow
-    'swarm-4': '\033[95m',   # Magenta
-    'swarm-5': '\033[96m',   # Cyan
-    'swarm-6': '\033[91m',   # Red
-    'swarm-7': '\033[97m',   # White
-    'swarm-8': '\033[90m',   # Gray
-    'reset': '\033[0m',
-    'bold': '\033[1m',
-    'dim': '\033[2m',
-}
+# Try colorama for cross-platform colors
+try:
+    from colorama import Fore, Back, Style, init
+    init(autoreset=True)
+    COLORS = {
+        'swarm-1': Fore.BLUE,
+        'swarm-2': Fore.GREEN,
+        'swarm-3': Fore.YELLOW,
+        'swarm-4': Fore.MAGENTA,
+        'swarm-5': Fore.CYAN,
+        'swarm-6': Fore.RED,
+        'swarm-7': Fore.WHITE,
+        'swarm-8': Fore.LIGHTBLACK_EX,
+        'claude-a': Fore.BLUE,
+        'claude-b': Fore.GREEN,
+        'claude-c': Fore.YELLOW,
+        'claude-d': Fore.MAGENTA,
+        'reset': Style.RESET_ALL,
+        'bold': Style.BRIGHT,
+        'dim': Style.DIM,
+    }
+except ImportError:
+    # Fallback to ANSI codes
+    COLORS = {
+        'swarm-1': '\033[94m',
+        'swarm-2': '\033[92m',
+        'swarm-3': '\033[93m',
+        'swarm-4': '\033[95m',
+        'swarm-5': '\033[96m',
+        'swarm-6': '\033[91m',
+        'swarm-7': '\033[97m',
+        'swarm-8': '\033[90m',
+        'claude-a': '\033[94m',
+        'claude-b': '\033[92m',
+        'claude-c': '\033[93m',
+        'claude-d': '\033[95m',
+        'reset': '\033[0m',
+        'bold': '\033[1m',
+        'dim': '\033[2m',
+    }
 
 def colorize(session: str, text: str) -> str:
     """Add color to text based on session name"""
@@ -445,27 +472,29 @@ def watch_daemon(interval: int = 5):
             time.sleep(interval)
 
 
-def watch_logs(all_repos: bool = False):
+def watch_logs(all_repos: bool = False, lines: int = 200):
     """
     Watch message logs with colored output.
     By default only watches current repo's log.
+    Shows last N lines of history then follows.
     """
     import re
-    import select
 
     if all_repos:
         log_pattern = "/tmp/nclaude/*/messages.log"
-        print(f"{COLORS['bold']}Watching ALL repo logs: {log_pattern}{COLORS['reset']}")
+        print(f"{COLORS['bold']}Watching ALL repo logs{COLORS['reset']}")
     else:
         log_path = get_log_path()
         log_pattern = str(log_path)
         print(f"{COLORS['bold']}Watching: {log_pattern}{COLORS['reset']}")
 
-    print(f"{COLORS['dim']}Press Ctrl+C to stop{COLORS['reset']}\n")
+    print(f"{COLORS['dim']}Showing last {lines} lines, then following. Ctrl+C to stop{COLORS['reset']}")
+    print(f"{COLORS['dim']}{'─' * 60}{COLORS['reset']}\n")
 
-    # Use tail -f with subprocess
-    cmd = ["tail", "-f"] + (["-q"] if all_repos else [])
+    # Use tail -n <lines> -f with subprocess
+    cmd = ["tail", f"-n{lines}", "-f"]
     if all_repos:
+        cmd.append("-q")  # Quiet mode for multiple files
         import glob
         files = glob.glob("/tmp/nclaude/*/messages.log")
         if not files:
@@ -483,21 +512,34 @@ def watch_logs(all_repos: bool = False):
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
         while True:
-            # Read line by line
             line = proc.stdout.readline()
             if not line:
                 break
 
-            # Parse and colorize
+            # Parse and colorize based on session name
             # Format: [timestamp] [session] message or <<<[ts][session][type]>>>
-            match = re.search(r'\[(\w+(?:-\w+)*)\]', line)
+            line = line.rstrip()
+
+            # Find all bracketed items and colorize by session
+            match = re.search(r'\[([a-zA-Z][\w-]*)\]', line)
             if match:
                 session = match.group(1)
-                # Skip timestamps that look like ISO format
-                if not re.match(r'\d{4}-\d{2}-\d{2}', session):
-                    print(colorize(session, line.rstrip()))
+                # Color the whole line based on session
+                color = COLORS.get(session, '')
+                if color:
+                    print(f"{color}{line}{COLORS['reset']}")
                     continue
-            print(line.rstrip())
+
+            # Check for <<<[ts][session][type]>>> format
+            match = re.search(r'<<<\[[^\]]+\]\[([^\]]+)\]', line)
+            if match:
+                session = match.group(1)
+                color = COLORS.get(session, '')
+                if color:
+                    print(f"{color}{line}{COLORS['reset']}")
+                    continue
+
+            print(line)
 
     except KeyboardInterrupt:
         print(f"\n{COLORS['dim']}Stopped watching logs{COLORS['reset']}")
@@ -567,7 +609,15 @@ def main():
 
     elif cmd == "logs":
         all_repos = "--all" in sys.argv
-        watch_logs(all_repos=all_repos)
+        # Parse --lines N
+        lines = 200
+        for i, arg in enumerate(sys.argv):
+            if arg in ("-n", "--lines") and i + 1 < len(sys.argv):
+                try:
+                    lines = int(sys.argv[i + 1])
+                except ValueError:
+                    pass
+        watch_logs(all_repos=all_repos, lines=lines)
 
     else:
         print(f"Unknown command: {cmd}")
