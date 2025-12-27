@@ -17,6 +17,8 @@ Usage:
     python3 swarm_daemon.py list                                   # List sessions
     python3 swarm_daemon.py swarm <n> <task>                       # Spawn N Claudes to divide work
     python3 swarm_daemon.py ask <session_name> <question>          # Ask and show answer
+    python3 swarm_daemon.py logs                                   # Watch logs (current repo only)
+    python3 swarm_daemon.py logs --all                             # Watch all repo logs
 """
 
 import json
@@ -31,6 +33,37 @@ from typing import Optional
 # Configuration
 CLAUDE_BINARY = os.path.expanduser("~/.claude/local/node_modules/.bin/claude")
 NCLAUDE_DIR = Path(os.environ.get("NCLAUDE_DIR", "/tmp/nclaude"))
+
+# ANSI colors for swarm agents
+COLORS = {
+    'swarm-1': '\033[94m',   # Blue
+    'swarm-2': '\033[92m',   # Green
+    'swarm-3': '\033[93m',   # Yellow
+    'swarm-4': '\033[95m',   # Magenta
+    'swarm-5': '\033[96m',   # Cyan
+    'swarm-6': '\033[91m',   # Red
+    'swarm-7': '\033[97m',   # White
+    'swarm-8': '\033[90m',   # Gray
+    'reset': '\033[0m',
+    'bold': '\033[1m',
+    'dim': '\033[2m',
+}
+
+def colorize(session: str, text: str) -> str:
+    """Add color to text based on session name"""
+    color = COLORS.get(session, '')
+    reset = COLORS['reset']
+    if color:
+        return f"{color}{text}{reset}"
+    # Try to match swarm-N pattern
+    if session.startswith('swarm-'):
+        try:
+            n = int(session.split('-')[1]) % 8 + 1
+            color = COLORS.get(f'swarm-{n}', '')
+            return f"{color}{text}{reset}"
+        except (ValueError, IndexError):
+            pass
+    return text
 
 
 def get_nclaude_dir() -> Path:
@@ -299,13 +332,15 @@ Be concise. Focus on your portion only."""
         futures = [executor.submit(spawn_worker, i) for i in range(1, n + 1)]
         for future in concurrent.futures.as_completed(futures):
             result = future.result()
-            print(f"  {result['agent']}: {'OK' if result.get('success') else 'FAILED'}")
+            agent = result['agent']
+            status = f"{COLORS['bold']}OK{COLORS['reset']}" if result.get('success') else f"{COLORS['bold']}\033[91mFAILED{COLORS['reset']}"
+            print(f"  {colorize(agent, agent)}: {status}")
             results.append(result)
 
     print("-" * 60)
     print(f"Spawned {sum(1 for r in results if r.get('success'))}/{n} agents successfully")
-    print("\nTo see their work: tail -f /tmp/nclaude/*/messages.log")
-    print("To resume an agent: python3 scripts/swarm_daemon.py resume swarm-1 'continue'")
+    print(f"\n{COLORS['dim']}To see their work:{COLORS['reset']} python3 scripts/swarm_daemon.py logs")
+    print(f"{COLORS['dim']}To resume an agent:{COLORS['reset']} python3 scripts/swarm_daemon.py resume swarm-1 'continue'")
 
     return results
 
@@ -394,6 +429,65 @@ def watch_daemon(interval: int = 5):
             time.sleep(interval)
 
 
+def watch_logs(all_repos: bool = False):
+    """
+    Watch message logs with colored output.
+    By default only watches current repo's log.
+    """
+    import re
+    import select
+
+    if all_repos:
+        log_pattern = "/tmp/nclaude/*/messages.log"
+        print(f"{COLORS['bold']}Watching ALL repo logs: {log_pattern}{COLORS['reset']}")
+    else:
+        log_path = get_log_path()
+        log_pattern = str(log_path)
+        print(f"{COLORS['bold']}Watching: {log_pattern}{COLORS['reset']}")
+
+    print(f"{COLORS['dim']}Press Ctrl+C to stop{COLORS['reset']}\n")
+
+    # Use tail -f with subprocess
+    cmd = ["tail", "-f"] + (["-q"] if all_repos else [])
+    if all_repos:
+        import glob
+        files = glob.glob("/tmp/nclaude/*/messages.log")
+        if not files:
+            print("No log files found")
+            return
+        cmd.extend(files)
+    else:
+        if not Path(log_pattern).exists():
+            print(f"Log file not found: {log_pattern}")
+            print("Start a Claude session first to create the log.")
+            return
+        cmd.append(log_pattern)
+
+    try:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        while True:
+            # Read line by line
+            line = proc.stdout.readline()
+            if not line:
+                break
+
+            # Parse and colorize
+            # Format: [timestamp] [session] message or <<<[ts][session][type]>>>
+            match = re.search(r'\[(\w+(?:-\w+)*)\]', line)
+            if match:
+                session = match.group(1)
+                # Skip timestamps that look like ISO format
+                if not re.match(r'\d{4}-\d{2}-\d{2}', session):
+                    print(colorize(session, line.rstrip()))
+                    continue
+            print(line.rstrip())
+
+    except KeyboardInterrupt:
+        print(f"\n{COLORS['dim']}Stopped watching logs{COLORS['reset']}")
+        proc.terminate()
+
+
 def main():
     if len(sys.argv) < 2:
         print(__doc__)
@@ -454,6 +548,10 @@ def main():
         print(f"Answer from {sys.argv[2]}:")
         print(f"{'='*60}")
         print(answer)
+
+    elif cmd == "logs":
+        all_repos = "--all" in sys.argv
+        watch_logs(all_repos=all_repos)
 
     else:
         print(f"Unknown command: {cmd}")
