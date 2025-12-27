@@ -16,39 +16,60 @@ from pathlib import Path
 def get_claude_sessions():
     """Get mapping of session_id -> tty for running Claude processes"""
     sessions = {}
+    seen_ttys = set()
 
-    # Use pgrep -fl to get full command line with env vars
     try:
+        # First pass: find claude processes with NCLAUDE_ID in their child processes
         result = subprocess.run(
-            ['pgrep', '-fl', 'claude'],
+            ['ps', 'eww', '-o', 'pid,tty,command'],
             capture_output=True, text=True, timeout=5
         )
 
         for line in result.stdout.splitlines():
-            if 'NCLAUDE_ID=' in line:
-                # Extract PID and NCLAUDE_ID
-                parts = line.split(None, 1)
+            # Look for NCLAUDE_ID in environment
+            match = re.search(r'NCLAUDE_ID=(\S+)', line)
+            if match:
+                session_id = match.group(1)
+                parts = line.split()
                 if len(parts) >= 2:
                     pid = parts[0]
-
-                    # Extract NCLAUDE_ID from environment
-                    match = re.search(r'NCLAUDE_ID=(\S+)', line)
-                    if match:
-                        session_id = match.group(1)
-
-                        # Get TTY for this PID
-                        ps_result = subprocess.run(
-                            ['ps', '-o', 'tty=', '-p', pid],
-                            capture_output=True, text=True, timeout=5
-                        )
-                        tty = ps_result.stdout.strip()
-
-                        if tty and tty != '??':
+                    tty = parts[1]
+                    if tty and tty not in ('??', '?'):
+                        if tty not in seen_ttys:
                             sessions[session_id] = {
                                 'pid': pid,
                                 'tty': tty,
-                                'tty_path': f'/dev/{tty}' if not tty.startswith('/') else tty
+                                'tty_path': f'/dev/{tty}'
                             }
+                            seen_ttys.add(tty)
+
+        # Second pass: find ALL claude CLI processes (the main "claude" command)
+        # These may not have NCLAUDE_ID visible but are still Claude sessions
+        result = subprocess.run(
+            ['ps', '-o', 'pid,tty,command'],
+            capture_output=True, text=True, timeout=5
+        )
+
+        for line in result.stdout.splitlines():
+            parts = line.split()
+            if len(parts) >= 3:
+                pid = parts[0]
+                tty = parts[1]
+                cmd = parts[2]
+
+                # Match the main claude process (not child MCP servers, etc)
+                # The main process is just "claude" without path components
+                if cmd == 'claude' and tty not in ('??', '?', 'TT'):
+                    if tty not in seen_ttys:
+                        # Use tty as session ID
+                        session_id = f"claude-{tty}"
+                        sessions[session_id] = {
+                            'pid': pid,
+                            'tty': tty,
+                            'tty_path': f'/dev/{tty}'
+                        }
+                        seen_ttys.add(tty)
+
     except Exception as e:
         print(f"Error getting sessions: {e}", file=sys.stderr)
 
