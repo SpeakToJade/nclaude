@@ -19,7 +19,28 @@ from pathlib import Path
 
 CLAUDE_BIN = os.path.expanduser("~/.claude/local/node_modules/.bin/claude")
 NCLAUDE_SCRIPT = Path(__file__).parent / "nclaude.py"
-SESSION_FILE = Path("/tmp/nclaude/swarm_sessions.json")
+
+
+def get_nclaude_dir() -> Path:
+    """Get git-aware nclaude directory (shared across worktrees)"""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            repo_name = Path(result.stdout.strip()).name
+            return Path(f"/tmp/nclaude/{repo_name}")
+    except Exception:
+        pass
+    return Path("/tmp/nclaude")
+
+
+def get_session_file() -> Path:
+    """Get path to swarm sessions file"""
+    nclaude_dir = get_nclaude_dir()
+    nclaude_dir.mkdir(parents=True, exist_ok=True)
+    return nclaude_dir / "swarm_sessions.json"
 
 
 def run_nclaude(cmd, *args):
@@ -27,7 +48,7 @@ def run_nclaude(cmd, *args):
     result = subprocess.run(
         ["python3", str(NCLAUDE_SCRIPT), cmd] + list(args),
         capture_output=True, text=True, timeout=30,
-        env={**os.environ, "NCLAUDE_DIR": "/tmp/nclaude"}
+        env={**os.environ, "NCLAUDE_DIR": str(get_nclaude_dir())}
     )
     if result.stdout:
         try:
@@ -146,8 +167,8 @@ def spawn_swarm(main_task: str, num_agents: int = 4, timeout: int = 120):
 
     # Save session info for later resume
     sessions = {r["agent_id"]: r.get("session_id") for r in results if r.get("session_id")}
-    SESSION_FILE.parent.mkdir(parents=True, exist_ok=True)
-    SESSION_FILE.write_text(json.dumps(sessions, indent=2))
+    session_file = get_session_file()
+    session_file.write_text(json.dumps(sessions, indent=2))
 
     # Print summary
     print("\n" + "=" * 60)
@@ -165,7 +186,7 @@ def spawn_swarm(main_task: str, num_agents: int = 4, timeout: int = 120):
             resp = r["response"][:200].replace("\n", " ")
             print(f"      Response: {resp}...")
 
-    print(f"\nSessions saved to: {SESSION_FILE}")
+    print(f"\nSessions saved to: {session_file}")
 
     return results
 
@@ -207,8 +228,9 @@ def check_status():
     print("=" * 60)
 
     # Load saved sessions
-    if SESSION_FILE.exists():
-        sessions = json.loads(SESSION_FILE.read_text())
+    session_file = get_session_file()
+    if session_file.exists():
+        sessions = json.loads(session_file.read_text())
         print(f"\nSaved sessions ({len(sessions)}):")
         for agent_id, session_id in sessions.items():
             print(f"  {agent_id}: {session_id}")
@@ -225,11 +247,12 @@ def check_status():
 
 def resume_all(prompt: str):
     """Resume all saved sessions with a new prompt"""
-    if not SESSION_FILE.exists():
+    session_file = get_session_file()
+    if not session_file.exists():
         print("No saved sessions to resume")
         return
 
-    sessions = json.loads(SESSION_FILE.read_text())
+    sessions = json.loads(session_file.read_text())
 
     print(f"Resuming {len(sessions)} agents with: {prompt[:50]}...")
 
