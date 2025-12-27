@@ -237,6 +237,36 @@ def check_status():
             print(f"  {msg[:80]}...")
 
 
+def kill_swarm():
+    """Kill any running swarm processes"""
+    import signal
+
+    print("Looking for swarm processes...")
+    killed = 0
+
+    try:
+        result = subprocess.run(
+            ["pgrep", "-f", "NCLAUDE_ID=swarm"],
+            capture_output=True, text=True
+        )
+
+        for pid in result.stdout.strip().split("\n"):
+            if pid:
+                try:
+                    os.kill(int(pid), signal.SIGTERM)
+                    print(f"  Killed PID {pid}")
+                    killed += 1
+                except (ProcessLookupError, ValueError):
+                    pass
+    except Exception as e:
+        print(f"Error: {e}")
+
+    if killed == 0:
+        print("No swarm processes found (they auto-exit after completing)")
+    else:
+        print(f"Killed {killed} processes")
+
+
 def resume_all(prompt: str):
     """Resume all saved sessions with a new prompt"""
     if not SESSION_FILE.exists():
@@ -270,6 +300,8 @@ def main():
 
     if args.task == "status":
         check_status()
+    elif args.task == "kill":
+        kill_swarm()
     elif args.resume:
         resume_all(args.resume)
     elif args.task:
