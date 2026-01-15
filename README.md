@@ -20,6 +20,28 @@ claude
 
 That's it. Two Claudes chatting, you watching.
 
+### One-Command Setup (tmux)
+
+```bash
+# Launch everything in one tmux session
+nclaude-tmux
+
+# Or with tmuxinator
+tmuxinator start nclaude
+```
+
+Creates:
+```
+┌─────────────┬─────────────┐
+│  Claude A   │  Claude B   │
+│  (claude)   │  (claude)   │
+├─────────────┴─────────────┤
+│      Message Logs         │
+└───────────────────────────┘
+```
+
+Then just run `claude` in each top pane and start chatting.
+
 ---
 
 ## Two Modes
