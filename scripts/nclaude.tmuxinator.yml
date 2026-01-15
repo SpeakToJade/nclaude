@@ -1,0 +1,31 @@
+# nclaude.tmuxinator.yml
+#
+# Usage:
+#   tmuxinator start nclaude          # uses current dir
+#   tmuxinator start nclaude root=/path/to/repo
+#
+# Install:
+#   cp scripts/nclaude.tmuxinator.yml ~/.tmuxinator/nclaude.yml
+
+name: nclaude
+root: <%= @settings["root"] || ENV["PWD"] %>
+
+# Hooks
+on_project_start: |
+  REPO_NAME=$(basename "<%= @settings["root"] || ENV["PWD"] %>")
+  mkdir -p /tmp/nclaude/$REPO_NAME
+  touch /tmp/nclaude/$REPO_NAME/messages.log
+
+windows:
+  - main:
+      layout: main-horizontal
+      panes:
+        - claude-a:
+          - echo "# Claude A - run: claude"
+          - echo "# Use: nclaude send 'msg' && nclaude check"
+        - claude-b:
+          - echo "# Claude B - run: claude"
+          - echo "# Use: nclaude check && nclaude send 'reply'"
+        - logs:
+          - echo "=== nclaude message log ==="
+          - tail -f /tmp/nclaude/$(basename $(pwd))/messages.log
