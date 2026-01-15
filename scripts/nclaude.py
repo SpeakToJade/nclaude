@@ -311,7 +311,7 @@ def listen(session_id: str, interval: int = 5):
 
 def main():
     if len(sys.argv) < 2:
-        print(json.dumps({"error": "Usage: nclaude.py <init|send|read|status|clear|whoami|pending|listen> [args]"}))
+        print(json.dumps({"error": "Usage: nclaude.py <init|send|read|check|status|clear|whoami|pending|listen> [args]"}))
         sys.exit(1)
 
     cmd = sys.argv[1]
@@ -385,6 +385,18 @@ def main():
         elif cmd == "pending":
             session_id = positional[0] if positional else get_auto_session_id()
             result = pending(session_id)
+        elif cmd == "check":
+            # Combined pending + read - one-stop "catch me up" command
+            session_id = positional[0] if positional else get_auto_session_id()
+            pending_result = pending(session_id)
+            read_result = read(session_id)
+            result = {
+                "pending_messages": pending_result.get("messages", []),
+                "new_messages": read_result.get("messages", []),
+                "pending_count": pending_result.get("count", 0),
+                "new_count": read_result.get("new_count", 0),
+                "total": pending_result.get("count", 0) + read_result.get("new_count", 0)
+            }
         elif cmd == "listen":
             session_id = positional[0] if positional else get_auto_session_id()
             # Parse --interval flag
