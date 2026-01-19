@@ -98,26 +98,73 @@ Claudes spawn, divide work, report findings.
 
 ---
 
-## Install
+## Quick Start
+
+No dependencies. Pure Python stdlib.
+
+### Option 1: Single Project (No Install)
+
+Perfect for trying it out or sandboxed usage:
 
 ```bash
-git clone https://github.com/SpeakToJade/nclaude.git
-cd nclaude
+cd your-project
 
-# Install globally (recommended)
+# Clone into project
+git clone https://github.com/gyrusdentatus/nclaude.git .nclaude
+
+# Copy slash commands to project
+mkdir -p .claude/commands
+cp .nclaude/.claude/commands/n*.md .claude/commands/
+
+# Run Claude (with or without sandbox)
+claude --dangerously-skip-permissions
+
+# Slash commands now work: /nsend, /ncheck, /nread
+# Or call directly:
+python3 .nclaude/scripts/nclaude.py send "hello"
+python3 .nclaude/scripts/nclaude.py check
+```
+
+### Option 2: Global Install (uv)
+
+Recommended for multi-project use:
+
+```bash
+git clone https://github.com/gyrusdentatus/nclaude.git ~/nclaude
+cd ~/nclaude
+
+# Install globally
 uv tool install .
 
-# Symlink slash commands for global use
+# Symlink slash commands
+mkdir -p ~/.claude/commands
 for f in .claude/commands/n*.md; do
   ln -sf "$(pwd)/$f" ~/.claude/commands/
 done
 
-# Now available anywhere:
+# Now available everywhere:
 nclaude check
 swarm list
 ```
 
-No dependencies. Pure Python stdlib.
+### Option 3: Global Install (No uv)
+
+If you only have python3:
+
+```bash
+git clone https://github.com/gyrusdentatus/nclaude.git ~/nclaude
+
+# Add alias to shell
+echo 'alias nclaude="python3 ~/nclaude/scripts/nclaude.py"' >> ~/.zshrc
+echo 'alias swarm="python3 ~/nclaude/scripts/swarm_daemon.py"' >> ~/.zshrc
+source ~/.zshrc
+
+# Symlink slash commands
+mkdir -p ~/.claude/commands
+for f in ~/nclaude/.claude/commands/n*.md; do
+  ln -sf "$f" ~/.claude/commands/
+done
+```
 
 ---
 
