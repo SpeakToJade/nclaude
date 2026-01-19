@@ -98,26 +98,73 @@ Claudes spawn, divide work, report findings.
 
 ---
 
-## Install
+## Quick Start
+
+No dependencies. Pure Python stdlib.
+
+### Option 1: Single Project (No Install)
+
+Perfect for trying it out or sandboxed usage:
 
 ```bash
-git clone https://github.com/SpeakToJade/nclaude.git
-cd nclaude
+cd your-project
 
-# Install globally (recommended)
+# Clone into project
+git clone https://github.com/gyrusdentatus/nclaude.git .nclaude
+
+# Copy slash commands to project
+mkdir -p .claude/commands
+cp .nclaude/.claude/commands/n*.md .claude/commands/
+
+# Run Claude (with or without sandbox)
+claude --dangerously-skip-permissions
+
+# Slash commands now work: /nsend, /ncheck, /nread
+# Or call directly:
+python3 .nclaude/scripts/nclaude.py send "hello"
+python3 .nclaude/scripts/nclaude.py check
+```
+
+### Option 2: Global Install (uv)
+
+Recommended for multi-project use:
+
+```bash
+git clone https://github.com/gyrusdentatus/nclaude.git ~/nclaude
+cd ~/nclaude
+
+# Install globally
 uv tool install .
 
-# Symlink slash commands for global use
+# Symlink slash commands
+mkdir -p ~/.claude/commands
 for f in .claude/commands/n*.md; do
   ln -sf "$(pwd)/$f" ~/.claude/commands/
 done
 
-# Now available anywhere:
+# Now available everywhere:
 nclaude check
 swarm list
 ```
 
-No dependencies. Pure Python stdlib.
+### Option 3: Global Install (No uv)
+
+If you only have python3:
+
+```bash
+git clone https://github.com/gyrusdentatus/nclaude.git ~/nclaude
+
+# Add alias to shell
+echo 'alias nclaude="python3 ~/nclaude/scripts/nclaude.py"' >> ~/.zshrc
+echo 'alias swarm="python3 ~/nclaude/scripts/swarm_daemon.py"' >> ~/.zshrc
+source ~/.zshrc
+
+# Symlink slash commands
+mkdir -p ~/.claude/commands
+for f in ~/nclaude/.claude/commands/n*.md; do
+  ln -sf "$f" ~/.claude/commands/
+done
+```
 
 ---
 
@@ -159,6 +206,58 @@ Allow Claude to run nclaude commands without prompting:
 ```
 
 Priority: local > project > global
+
+---
+
+## Automatic Peer Notifications (Hook-Based)
+
+Get notified of peer messages automatically when you type - no manual `/check` needed.
+
+**Setup:**
+
+1. Pair projects that should communicate:
+```bash
+# In project A
+nclaude pair project-b
+
+# In project B (optional - pairing is bidirectional)
+nclaude pair project-a
+```
+
+2. Add hook to your settings (see [examples/settings.json.example](examples/settings.json.example)):
+
+**Global (~/.claude/settings.json):**
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [{
+      "hooks": [{
+        "type": "command",
+        "command": "python3 /path/to/nclaude/scripts/nclaude-hook.py"
+      }]
+    }]
+  },
+  "permissions": {
+    "allow": ["Bash(nclaude *)"]
+  }
+}
+```
+
+**How it works:**
+- On every prompt, the hook checks for new messages from paired peers
+- Peer messages are injected into context via `additionalContext`
+- Messages from non-peers are ignored (prevents noise)
+- Zero overhead when no messages - hook exits silently
+
+**Example flow:**
+```
+# Claude in project-a types anything
+User: "What's next?"
+
+# Hook injects peer messages automatically:
+# [nclaude] peer messages
+# [2025-01-19T20:15:00] [project-b-main] [TASK] Need review on auth.py
+```
 
 ---
 
