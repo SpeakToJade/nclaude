@@ -162,6 +162,55 @@ Priority: local > project > global
 
 ---
 
+## Automatic Peer Notifications (Hook-Based)
+
+Get notified of peer messages automatically when you type - no manual `/check` needed.
+
+**Setup:**
+
+1. Pair projects that should communicate:
+```bash
+# In project A
+nclaude pair project-b
+
+# In project B (optional - pairing is bidirectional)
+nclaude pair project-a
+```
+
+2. Add hook to your settings:
+
+**Global (~/.claude/settings.json):**
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [{
+      "hooks": [{
+        "type": "command",
+        "command": "python3 /path/to/nclaude/scripts/nclaude-hook.py"
+      }]
+    }]
+  }
+}
+```
+
+**How it works:**
+- On every prompt, the hook checks for new messages from paired peers
+- Peer messages are injected into context via `additionalContext`
+- Messages from non-peers are ignored (prevents noise)
+- Zero overhead when no messages - hook exits silently
+
+**Example flow:**
+```
+# Claude in project-a types anything
+User: "What's next?"
+
+# Hook injects peer messages automatically:
+# [nclaude] peer messages
+# [2025-01-19T20:15:00] [project-b-main] [TASK] Need review on auth.py
+```
+
+---
+
 ## Slash Commands
 
 | Command | Description |
