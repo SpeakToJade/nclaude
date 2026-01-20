@@ -5,7 +5,7 @@ description: Check for pending messages from listen daemon
 Check for pending messages that the listen daemon has queued. Execute this command:
 
 ```
-nclaude pending "${NCLAUDE_ID:-claude}"
+nclaude pending
 ```
 
 If pending messages exist:

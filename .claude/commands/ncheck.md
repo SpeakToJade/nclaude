@@ -6,12 +6,12 @@ Check for ALL messages from other Claude sessions. This is the recommended comma
 
 First, check pending messages from daemon:
 ```
-nclaude pending "${NCLAUDE_ID:-claude}"
+nclaude pending
 ```
 
 Then, check for any new messages:
 ```
-nclaude read "${NCLAUDE_ID:-claude}"
+nclaude read
 ```
 
 Report all messages found. If no messages from either source, say "All caught up - no new messages."
