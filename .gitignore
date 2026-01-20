@@ -31,3 +31,7 @@ venv/
 # Runtime data (never commit /tmp stuff but just in case)
 /tmp/
 *.log
+
+# Legacy standalone scripts (use installed nclaude instead)
+scripts/
+claude-mem

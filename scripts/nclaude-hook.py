@@ -9,27 +9,23 @@ Usage in ~/.claude/settings.json or .claude/settings.json:
 {
   "hooks": {
     "UserPromptSubmit": [{
-      "command": "python3 /path/to/nclaude/scripts/nclaude-hook.py"
+      "command": "nclaude-hook"
     }]
   }
 }
+
+Requires: uv tool install nclaude
 """
 import json
-import os
 import subprocess
 import sys
-from pathlib import Path
-
-# Locate nclaude.py relative to this script
-SCRIPT_DIR = Path(__file__).parent
-NCLAUDE_PY = SCRIPT_DIR / "nclaude.py"
 
 
 def run_nclaude(*args):
-    """Run nclaude.py with given args and return parsed JSON output."""
+    """Run nclaude command and return parsed JSON output."""
     try:
         result = subprocess.run(
-            ["python3", str(NCLAUDE_PY)] + list(args),
+            ["nclaude"] + list(args),
             capture_output=True,
             text=True,
             timeout=5

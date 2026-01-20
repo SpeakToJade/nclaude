@@ -145,7 +145,12 @@ class Room(ABC):
 
         # Apply limit
         if limit and len(new_lines) > limit:
-            new_lines = new_lines[:limit]
+            if all_messages:
+                # For --all, show the LAST N messages (most recent)
+                new_lines = new_lines[-limit:]
+            else:
+                # For new messages, show the FIRST N (oldest unread first)
+                new_lines = new_lines[:limit]
 
         # Update pointer (always update to latest, regardless of filters)
         self.storage.set_read_pointer(session_id, self.name, len(lines))

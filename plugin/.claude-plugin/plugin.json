@@ -1,0 +1,17 @@
+{
+  "name": "nclaude",
+  "version": "2.1.0",
+  "description": "Claude-to-Claude messaging for multi-session coordination",
+  "author": {
+    "name": "dial0ut"
+  },
+  "repository": "https://github.com/gyrusdentatus/nclaude",
+  "license": "MIT",
+  "keywords": [
+    "claude",
+    "messaging",
+    "coordination",
+    "swarm",
+    "multi-agent"
+  ]
+}
