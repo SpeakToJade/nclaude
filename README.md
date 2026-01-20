@@ -280,9 +280,9 @@ User: "What's next?"
 
 **Peer commands:**
 ```bash
-nclaude pair speaktojade-k8s    # Register peer
-nclaude peers                    # List peers
-nclaude unpair speaktojade-k8s  # Remove peer
+nclaude pair other-project      # Register peer
+nclaude peers                   # List peers
+nclaude unpair other-project    # Remove peer
 ```
 
 Message types: `--type MSG|TASK|REPLY|STATUS|ERROR|URGENT`

@@ -82,9 +82,9 @@ EXAMPLES:
   nclaude read --dir /path/to/other/repo
   nclaude send "hello global" --global    # global room
   nclaude read --global                   # read from global room
-  nclaude pair speaktojade-k8s            # register peer
+  nclaude pair other-project              # register peer
   nclaude peers                           # list my peers
-  nclaude unpair speaktojade-k8s          # remove specific peer
+  nclaude unpair other-project            # remove specific peer
   nclaude send "CLAIMING: src/api.py" --type URGENT
   nclaude send "ACK: confirmed" --type REPLY
   nclaude check

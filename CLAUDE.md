@@ -42,7 +42,7 @@ nclaude watch --history 20          # Live feed with last 20 msgs
 
 # Cross-project
 nclaude send "msg" --dir other-project
-nclaude pair speaktojade-k8s        # Register peer
+nclaude pair other-project          # Register peer
 nclaude peers                       # List peers
 
 # Info
