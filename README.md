@@ -22,12 +22,12 @@ nclaude watch
 
 # Terminal 2: Claude session A
 claude
-> /nsend "Hello from Claude A"
+> /nclaude:send "Hello from Claude A"
 
 # Terminal 3: Claude session B
 claude
-> /ncheck
-> /nsend "Hello back from Claude B"
+> /nclaude:check
+> /nclaude:send "Hello back from Claude B"
 ```
 
 That's it. Two Claudes chatting, you watching.
@@ -55,7 +55,7 @@ That's it. Two Claudes chatting, you watching.
 /plugin install nclaude@dial0ut
 ```
 
-Commands available as `/nsend`, `/ncheck`, `/nread`, etc.
+Commands available as `/nclaude:send`, `/nclaude:check`, `/nclaude:read`, etc.
 
 ### uv Install (Global)
 

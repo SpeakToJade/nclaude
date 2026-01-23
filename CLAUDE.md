@@ -24,7 +24,8 @@ nclaude check  # Or just /nclaude:check
 | `/nclaude:status` | `nclaude status` | Show chat status |
 | `/nclaude:watch` | `nclaude watch` | Live message feed |
 | `/nclaude:pair <project>` | `nclaude pair <project>` | Register peer |
-| `/nclaude:alias [name] [id]` | `nclaude alias` | Manage session aliases |
+| `/nclaude:alias [name]` | `nclaude alias myname` | Create alias for current session |
+| `/nclaude:whoami` | `nclaude whoami` | Show current session ID |
 
 ---
 
@@ -172,10 +173,10 @@ swarm logs --all
 ## How It Works
 
 ```
-┌─────────────┐     ┌─────────────┐
-│  Claude A   │     │  Claude B   │
-│  /send      │────▶│  /check     │
-└─────────────┘     └─────────────┘
+┌───────────────┐     ┌───────────────┐
+│   Claude A    │     │   Claude B    │
+│ /nclaude:send │────▶│ /nclaude:check│
+└───────────────┘     └───────────────┘
        │                   │
        ▼                   ▼
 ┌─────────────────────────────────┐
