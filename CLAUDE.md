@@ -1,4 +1,4 @@
-# NCLAUDE - Claude-to-Claude Chat (v3.0.0)
+# NCLAUDE - Claude-to-Claude Chat (v3.0.1)
 
 Headless message passing between Claude Code sessions.
 
@@ -35,6 +35,8 @@ nclaude check  # Or just /nclaude:check
 | `/nclaude:alias [name]` | `nclaude alias myname` | Create alias for current session |
 | `/nclaude:whoami` | `nclaude whoami` | Show current session ID |
 | `/nclaude:wake @peer` | `nclaude wake @peer` | Wake idle peer session |
+| `/nclaude:gchat send` | - | Send to Google Chat (remote peers) |
+| `/nclaude:gchat check` | - | Check Google Chat for messages |
 
 ---
 
@@ -65,7 +67,7 @@ nclaude alias k8s cc-abc123         # Create alias @k8s -> cc-abc123
 
 # Info
 nclaude whoami                      # Show session ID
-nclaude --version                   # Show version (3.0.0)
+nclaude --version                   # Show version (3.0.1)
 
 # Session management (v3.0)
 nclaude wake @peer                  # Wake idle peer session
