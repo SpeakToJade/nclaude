@@ -33,6 +33,7 @@ from .commands import (
     cmd_wake,
     cmd_sessions,
 )
+from .transports.gchat import GChatTransport
 
 
 def show_help() -> None:
@@ -79,6 +80,8 @@ FLAGS:
   --to @NAME        Send to specific recipient
   --for-me          Only show messages addressed to me
   --all-peers       Broadcast to all registered peers
+  --gchat           Also send/check via Google Chat (remote peers)
+  --gchat-only      Only use Google Chat, skip local
 
 EXAMPLES:
   nclaude watch                           # live message feed
@@ -189,6 +192,14 @@ def create_parser() -> argparse.ArgumentParser:
         help="Delete alias (for alias command)"
     )
     parser.add_argument(
+        "--gchat", dest="gchat", action="store_true",
+        help="Also send/check via Google Chat (remote peers)"
+    )
+    parser.add_argument(
+        "--gchat-only", dest="gchat_only", action="store_true",
+        help="Only use Google Chat, skip local"
+    )
+    parser.add_argument(
         "command", nargs="?", help="Command to run"
     )
     parser.add_argument(
@@ -237,7 +248,18 @@ def run_command(args: argparse.Namespace) -> Optional[Dict[str, Any]]:
         else:
             message = ""
 
-        return cmd_send(room, session_id, message, args.msg_type.upper(), to=args.to_recipient)
+        result = {}
+
+        # Send to local unless --gchat-only
+        if not args.gchat_only:
+            result["local"] = cmd_send(room, session_id, message, args.msg_type.upper(), to=args.to_recipient)
+
+        # Send to gchat if --gchat or --gchat-only
+        if args.gchat or args.gchat_only:
+            gchat = GChatTransport()
+            result["gchat"] = gchat.queue_send(session_id, message, args.msg_type.upper(), args.to_recipient)
+
+        return result if len(result) > 1 else result.get("local") or result.get("gchat")
 
     elif cmd == "read":
         if cmd_args:
@@ -248,7 +270,12 @@ def run_command(args: argparse.Namespace) -> Optional[Dict[str, Any]]:
         )
 
     elif cmd == "status":
-        return cmd_status(room, session_id)
+        result = cmd_status(room, session_id)
+        # Add gchat status if --gchat flag
+        if args.gchat or args.gchat_only:
+            gchat = GChatTransport()
+            result["gchat"] = gchat.status()
+        return result
 
     elif cmd == "clear":
         return cmd_clear(room)
@@ -288,7 +315,24 @@ def run_command(args: argparse.Namespace) -> Optional[Dict[str, Any]]:
     elif cmd == "check":
         if cmd_args:
             session_id = cmd_args[0]
-        return cmd_check(room, session_id, for_me=args.for_me)
+
+        result = {}
+
+        # Check local unless --gchat-only
+        if not args.gchat_only:
+            result["local"] = cmd_check(room, session_id, for_me=args.for_me)
+
+        # Check gchat inbox if --gchat or --gchat-only
+        if args.gchat or args.gchat_only:
+            gchat = GChatTransport()
+            inbox_msgs = gchat.read_inbox(session_id)
+            result["gchat"] = {
+                "messages": inbox_msgs,
+                "count": len(inbox_msgs),
+                "hint": "Run /nclaude:gchat sync to fetch new messages from Google Chat",
+            }
+
+        return result if len(result) > 1 else result.get("local") or result.get("gchat")
 
     elif cmd == "listen":
         if cmd_args:

@@ -28,6 +28,12 @@ Override with env: `NCLAUDE_GCHAT_SPACE=spaces/XXX`
 /nclaude:gchat check --all        # All nclaude traffic
 ```
 
+### Sync outbox/inbox
+
+```
+/nclaude:gchat sync               # Send queued messages, fetch new ones
+```
+
 ### Show status
 
 ```
@@ -67,11 +73,25 @@ When user invokes this skill, parse the command and execute accordingly:
    - One of my aliases
 5. Display filtered messages
 
+### For `sync`:
+
+Sync bridges the CLI outbox with Google Chat:
+
+1. Read outbox: `cat ~/.nclaude/gchat_outbox.jsonl`
+2. For each unsent message (sent=false):
+   - Call `mcp__google_chat__send_message_tool` with `text: entry.tagged`
+   - Mark as sent in outbox
+3. Search for new messages: `mcp__google_chat__search_messages_tool` with query `\[NCLAUDE:`
+4. Parse and filter messages for this session
+5. Write new messages to `~/.nclaude/gchat_inbox.jsonl`
+6. Report: "Sent X messages, received Y new messages"
+
 ### For `status`:
 
 1. Call `mcp__google_chat__get_chat_spaces_tool` to get space info
 2. Call `mcp__google_chat__search_messages_tool` for recent `[NCLAUDE:` messages
-3. Display summary: space name, member count, recent message count
+3. Run `nclaude status --gchat` to get local outbox/inbox counts
+4. Display summary: space name, member count, recent message count, pending outbox
 
 ---
 
@@ -124,3 +144,29 @@ Same as local nclaude - use SYN-ACK for coordination:
 - Google Chat (`/nclaude:gchat send`): Different machines, no shared filesystem
 
 Both use the same message format and protocols.
+
+---
+
+## CLI Integration (v3.0.1+)
+
+The nclaude CLI now supports `--gchat` flag for hybrid local+remote:
+
+```bash
+# Send to local AND queue for gchat
+nclaude send "Starting work" --gchat
+
+# Check local AND gchat inbox
+nclaude check --gchat
+
+# Only use gchat (skip local)
+nclaude send "Remote only" --gchat-only
+
+# Show local + gchat status
+nclaude status --gchat
+```
+
+**Workflow:**
+1. `nclaude send "msg" --gchat` queues to `~/.nclaude/gchat_outbox.jsonl`
+2. Run `/nclaude:gchat sync` to send queued messages via MCP
+3. Sync also fetches new messages into `~/.nclaude/gchat_inbox.jsonl`
+4. `nclaude check --gchat` reads from both local DB and gchat inbox
