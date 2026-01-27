@@ -322,6 +322,31 @@ When running agents in background/autonomous mode with `--dangerously-skip-permi
 
 ---
 
+## Development
+
+### Plugin Symlink (for instant updates)
+
+The installed plugin at `~/.claude/plugins/cache/dial0ut/nclaude/3.1.0` is symlinked to the dev directory:
+
+```bash
+~/.claude/plugins/cache/dial0ut/nclaude/3.1.0 -> /Users/hans/development/vipernauts/nclaude/plugin
+```
+
+This means changes to `plugin/` are instantly available without reinstalling. To recreate:
+
+```bash
+rm -rf ~/.claude/plugins/cache/dial0ut/nclaude/3.1.0
+ln -s /Users/hans/development/vipernauts/nclaude/plugin ~/.claude/plugins/cache/dial0ut/nclaude/3.1.0
+```
+
+### Marketplace
+
+The `dial0ut` marketplace is configured as a local directory source:
+- Source: `/Users/hans/development/vipernauts/nclaude`
+- To reinstall (copies files): `/plugin install nclaude@dial0ut`
+
+---
+
 ## Limitations
 
 - **No push**: Claude can't wake from idle - use `wait` command or UserPromptSubmit hook
