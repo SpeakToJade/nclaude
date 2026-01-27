@@ -1,25 +1,13 @@
 {
-  "description": "nclaude messaging hooks v3.0 - message checking, conversation analysis, peer suggestions",
+  "description": "nclaude messaging hooks v3.1 - message checking, aqua coordination",
   "hooks": {
     "UserPromptSubmit": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/pretool-check.py",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/check-messages.py",
             "timeout": 2000
-          }
-        ]
-      }
-    ],
-    "PreToolUse": [
-      {
-        "matcher": "Bash|Edit|Write|Task",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/pretool-check.py",
-            "timeout": 2
           }
         ]
       }
@@ -31,39 +19,6 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-init.sh",
             "timeout": 10
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/stop-check.py",
-            "timeout": 5
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Bash|Edit|Write|Task",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/check-messages.py",
-            "timeout": 10
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/notify-send.sh",
-            "timeout": 5
           }
         ]
       }

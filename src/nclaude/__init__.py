@@ -4,5 +4,5 @@ A simple file-based message queue for communication between Claude Code sessions
 No sockets, no pipes, no bullshit.
 """
 
-__version__ = "3.0.1"
+__version__ = "3.1.0"
 __all__ = ["__version__"]

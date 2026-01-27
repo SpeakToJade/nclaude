@@ -2,6 +2,7 @@
 # SessionStart hook: Initialize nclaude session
 # - Set NCLAUDE_ID from Claude Code session_id
 # - Initialize "last seen" message count
+# - Initialize Aqua coordination if available
 
 INPUT=$(cat)
 
@@ -18,6 +19,29 @@ if [ -n "$CC_SESSION_ID" ]; then
 
     export NCLAUDE_ID
 fi
+
+# Initialize Aqua coordination (if aqua is installed AND project has .aqua/)
+# NOTE: Aqua is opt-in. User must run 'aqua init' manually to enable it.
+AQUA_STATUS=""
+if command -v aqua &> /dev/null && [ -d ".aqua" ]; then
+    # Add .aqua/ to .gitignore if not already present
+    if [ -f ".gitignore" ] && ! grep -q "^\.aqua/$" .gitignore 2>/dev/null; then
+        echo ".aqua/" >> .gitignore
+    fi
+
+    # Try to refresh existing agent or join as new
+    REFRESH_OUT=$(aqua refresh --json 2>/dev/null)
+    if [ $? -eq 0 ]; then
+        AQUA_STATUS="refreshed"
+    else
+        # Not registered, join with nclaude ID
+        JOIN_OUT=$(aqua join -n "${NCLAUDE_ID}" --json 2>/dev/null)
+        if [ $? -eq 0 ]; then
+            AQUA_STATUS="joined"
+        fi
+    fi
+fi
+# If no .aqua/ directory - don't initialize (user must run 'aqua init' manually)
 
 # Initialize "last seen" count to current total (start fresh)
 SEEN_FILE="/tmp/nclaude-seen-${NCLAUDE_ID:-default}"
@@ -67,6 +91,7 @@ jq -n \
   --argjson pending_count "$PENDING_COUNT" \
   --argjson new_count "$NEW_COUNT" \
   --arg stale_aliases "${STALE_ALIASES:-}" \
+  --arg aqua_status "${AQUA_STATUS:-}" \
   '{
     session_id: $session_id,
     base_dir: $base_dir,
@@ -76,7 +101,8 @@ jq -n \
     pending_count: $pending_count,
     new_count: $new_count,
     total: ($pending_count + $new_count)
-  } + (if $stale_aliases != "" then {stale_aliases: $stale_aliases, hint: "Run nclaude alias <name> to update stale aliases to current session"} else {} end)'
+  } + (if $stale_aliases != "" then {stale_aliases: $stale_aliases, hint: "Run nclaude alias <name> to update stale aliases to current session"} else {} end)
+    + (if $aqua_status != "" then {aqua: $aqua_status} else {} end)'
 
 echo "nclaude session initialized: ${NCLAUDE_ID:-default}"
 exit 0

@@ -1,10 +1,12 @@
 [project]
 name = "nclaude"
-version = "2.1.0"
+version = "3.1.0"
 description = "Headless Claude-to-Claude messaging"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+    "aqua-coord>=0.5.0",
+]
 
 [project.optional-dependencies]
 mcp = ["mcp"]

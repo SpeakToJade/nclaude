@@ -1,6 +1,15 @@
-# NCLAUDE - Claude-to-Claude Chat (v3.0.1)
+# NCLAUDE - Claude-to-Claude Chat (v3.1.0)
 
-Headless message passing between Claude Code sessions.
+Headless message passing between Claude Code sessions, now with **Aqua** backend for multi-agent coordination.
+
+## New in v3.1.0
+
+- **Aqua integration** - Uses [aqua-coord](https://github.com/vignesh07/aqua) as messaging/coordination backend
+- **Atomic file locking** - `/nclaude:lock` replaces CLAIMING/RELEASED protocol
+- **Blocking ask/reply** - `/nclaude:ask` waits for answer, `/nclaude:reply` responds to message ID
+- **Task queue** - `/nclaude:task` for add/claim/done/fail operations
+- **Progress reporting** - `/nclaude:progress` for heartbeat + breadcrumbs
+- **Session refresh** - `/nclaude:refresh` restores identity after /compact
 
 ## New in v3.0.0
 
@@ -23,13 +32,15 @@ nclaude check  # Or just /nclaude:check
 
 ## Quick Commands
 
+### Messaging (nclaude native)
+
 | Slash Command | CLI Equivalent | What it does |
 |---------------|----------------|--------------|
 | `/nclaude:send <msg>` | `nclaude send "msg"` | Send message |
 | `/nclaude:check` | `nclaude check` | Read all messages (pending + new) |
 | `/nclaude:read` | `nclaude read` | Read new messages only |
 | `/nclaude:wait [timeout]` | `nclaude wait 30` | Block until message arrives |
-| `/nclaude:status` | `nclaude status` | Show chat status |
+| `/nclaude:status` | `nclaude status` | Show chat + aqua status |
 | `/nclaude:watch` | `nclaude watch` | Live message feed |
 | `/nclaude:pair <project>` | `nclaude pair <project>` | Register peer |
 | `/nclaude:alias [name]` | `nclaude alias myname` | Create alias for current session |
@@ -37,6 +48,19 @@ nclaude check  # Or just /nclaude:check
 | `/nclaude:wake @peer` | `nclaude wake @peer` | Wake idle peer session |
 | `/nclaude:gchat send` | - | Send to Google Chat (remote peers) |
 | `/nclaude:gchat check` | - | Check Google Chat for messages |
+
+### Coordination (aqua backend)
+
+| Slash Command | CLI Equivalent | What it does |
+|---------------|----------------|--------------|
+| `/nclaude:refresh` | `aqua refresh` | Restore identity after /compact |
+| `/nclaude:progress <msg>` | `aqua progress "msg"` | Report progress + heartbeat |
+| `/nclaude:ask <q> --to @peer` | `aqua ask "q" --to peer` | Blocking question, wait for reply |
+| `/nclaude:reply <id> <msg>` | `aqua reply <id> "msg"` | Reply to specific message |
+| `/nclaude:lock <file>` | `aqua lock <file>` | Atomic file lock |
+| `/nclaude:unlock <file>` | `aqua unlock <file>` | Release file lock |
+| `/nclaude:locks` | `aqua locks` | Show all current locks |
+| `/nclaude:task <cmd>` | `aqua <cmd>` | Task queue (add/claim/done/fail) |
 
 ---
 
@@ -128,22 +152,31 @@ nclaude send "NACK: Counter-proposal - I do both, you do docs" --type REPLY
 
 ---
 
-## Protocol: File Claiming
+## File Locking (v3.1+)
 
-Before editing a file, claim it:
+Use atomic file locks instead of the old CLAIMING protocol:
+
+```bash
+/nclaude:lock src/auth.py      # Acquire lock
+# ... do your work ...
+/nclaude:unlock src/auth.py    # Release lock
+```
+
+**Benefits over CLAIMING:**
+- Atomic (SQLite-backed, no race conditions)
+- Auto-recovery (locks expire if agent dies)
+- Queryable (`/nclaude:locks` shows all locks)
+
+### Legacy Protocol: File Claiming (deprecated)
+
+The old message-based claiming still works but lacks atomicity:
 
 ```bash
 nclaude send "CLAIMING: src/auth.py" --type URGENT
-
-# ... do your work ...
-
 nclaude send "RELEASED: src/auth.py" --type STATUS
 ```
 
-**Rules:**
-- One file = one owner
-- If you see a CLAIM, wait or negotiate
-- Always RELEASE when done
+Use `/nclaude:lock` instead for new workflows.
 
 ---
 
@@ -187,23 +220,56 @@ swarm logs --all
 
 ---
 
+## Aqua Workflow (v3.1+)
+
+When working with multiple agents, follow this pattern:
+
+```
+1. /nclaude:refresh        # Restore identity, see state
+2. /nclaude:task claim     # Get a task from queue
+3. /nclaude:lock <file>    # Lock files before editing
+4. /nclaude:progress "msg" # Report progress frequently
+5. /nclaude:unlock <file>  # Release locks when done
+6. /nclaude:task done      # Complete the task
+7. Repeat from step 2
+```
+
+**Key commands:**
+- `aqua status` - See all agents, tasks, and locks
+- `aqua ps` - Quick view of active agents
+- `aqua logs` - Tail the event stream
+
+---
+
 ## How It Works
 
 ```
-┌───────────────┐     ┌───────────────┐
-│   Claude A    │     │   Claude B    │
-│ /nclaude:send │────▶│ /nclaude:check│
-└───────────────┘     └───────────────┘
-       │                   │
-       ▼                   ▼
-┌─────────────────────────────────┐
-│     ~/.nclaude/messages.db      │
-│     (SQLite, cross-project)     │
-└─────────────────────────────────┘
+┌───────────────────────────────────────────────────────────┐
+│                    Claude Code Session                     │
+│  ┌─────────────────────────────────────────────────────┐  │
+│  │              nclaude plugin (interface)              │  │
+│  │  • Hooks (UserPromptSubmit, Stop, SessionStart)     │  │
+│  │  • Skills (/nclaude:send, /nclaude:lock, etc.)      │  │
+│  │  • Google Chat bridge (cross-machine)               │  │
+│  │  • Aliases (@k8s, @frontend)                        │  │
+│  └─────────────────────┬───────────────────────────────┘  │
+└────────────────────────┼──────────────────────────────────┘
+                         │ calls
+                         ▼
+┌───────────────────────────────────────────────────────────┐
+│                   Aqua backend (CLI)                       │
+│  • Messaging (threading, read receipts, ask/reply)        │
+│  • Task queue (priority, dependencies, atomic claiming)   │
+│  • File locking (atomic, auto-recovery)                   │
+│  • Crash recovery (5-min heartbeat)                       │
+│  • Leader election                                        │
+└───────────────────────────────────────────────────────────┘
 ```
 
-- SQLite storage at `~/.nclaude/messages.db` (default, cross-project)
-- Each session tracks last-read position
+**Storage:**
+- nclaude: `~/.nclaude/messages.db` (global, cross-project)
+- Aqua: `.aqua/aqua.db` (per-project coordination)
+
 - Git-aware: same repo = same room (including worktrees)
 - @mention routing with recipient field
 - UserPromptSubmit hook injects message count on every prompt
@@ -231,6 +297,28 @@ Copy the template from `plugin/config/nclaude-rules.yaml`.
 Built-in suggestions (no config needed):
 - **Stuck detection** - Repeated errors suggest asking a peer
 - **Topic routing** - k8s, docker, security, database, frontend, infra
+
+---
+
+## Future Work
+
+### Container-Use Security (aqua)
+
+Reference: https://container-use.com/
+
+When running agents in background/autonomous mode with `--dangerously-skip-permissions`:
+- Wrap bash commands in container-use sandboxes
+- Config in `.aqua/config.yml`:
+  ```yaml
+  security:
+    container_use:
+      enabled: true
+      image: "python:3.11-slim"
+      network: "none"
+  ```
+- Add `aqua spawn --container` flag
+
+**Status:** Deferred - requires container-use to mature
 
 ---
 
